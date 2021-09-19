@@ -137,6 +137,11 @@ sub POST_ISUCONDITION_TARGET_BASE_URL() {
     return $url;
 }
 
+
+# for Cpanel::JSON::XS::Type and ascii(0)
+local $Kossy::JSON_SERIALIZER = JSON::MaybeXS->new()->allow_blessed(1)->convert_blessed(1)->ascii(0);
+
+
 sub get_user_id_from_session($self, $c) {
     my $jia_user_id = $c->session->get('jia_user_id');
     if (!$jia_user_id) {
@@ -378,7 +383,9 @@ sub post_isu($self, $c) {
     }
 
     delete $isu->{image};
-    return $c->render_json($isu, Isu, HTTP_CREATED);
+    my $res = $c->render_json($isu, Isu);
+    $res->code(HTTP_CREATED);
+    return $res;
 }
 
 # GET /api/isu/:jia_isu_uuid
@@ -939,52 +946,9 @@ sub tm_from_unix {
 {
     use Plack::Session;
 
-    no warnings qw(redefine);
-    my $orig = \&Kossy::Exception::response;
-    *Kossy::Exception::response = sub {
-        my $self = $_[0];
-        if ($self->{my_response} isa Plack::Response) {
-            return $self->{my_response}->finalize;
-        }
-        goto $orig;
-    };
-
-    *Kossy::Connection::halt_text = sub {
-        my ($c, $status, $text) = @_;
-        $c->res->status($status);
-        $c->res->content_type('text/plain');
-        $c->res->body($text);
-        $c->halt($status, my_response => $c->res);
-    };
-
-    *Kossy::Connection::halt_no_content = sub {
-        my ($c, $status) = @_;
-        $c->res->headers->remove_content_headers;
-        $c->res->content_length(0);
-        $c->res->code($status);
-        $c->halt($status, my_response => $c->res);
-    };
-
     *Kossy::Connection::session = sub {
         my $c = shift;
         Plack::Session->new($c->env);
-    };
-
-    # override
-    my $_JSON = JSON::MaybeXS->new()->allow_blessed(1)->convert_blessed(1)->ascii(0);
-    *Kossy::Connection::render_json = sub {
-        my ($c, $obj, $json_spec, $status) = @_;
-
-        my $body = $_JSON->encode($obj, $json_spec); # Cpanel::JSON::XS::Typeを利用する
-        $body = $c->escape_json($body);
-
-        $status //= 200;
-
-        $c->res->status( $status );
-        $c->res->content_type('application/json; charset=UTF-8');
-        $c->res->header( 'X-Content-Type-Options' => 'nosniff' ); # defense from XSS
-        $c->res->body( $body );
-        $c->res;
     };
 }
 
